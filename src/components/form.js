@@ -26,6 +26,7 @@ const Form = ({ isVisible, toggleForm, toggleWish }) => {
     if (!state.textarea) {
       hide()
       toggleWish(true)
+      setState({}) // Clear the form input
     } else {
       fetch("/", {
         method: "POST",
@@ -38,6 +39,7 @@ const Form = ({ isVisible, toggleForm, toggleWish }) => {
         .then(() => {
           hide()
           toggleWish(true)
+          setState({}) // Clear the form input
         })
         .catch(error => alert(error))
     }
