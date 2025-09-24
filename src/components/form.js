@@ -1,9 +1,19 @@
-import React, { useState } from "react"
+import React, { useState, useRef, useEffect } from "react"
 
 import "../styles/components/form.scss"
 
 const Form = ({ isVisible, toggleForm, toggleWish }) => {
   const [state, setState] = useState({})
+  const [ipAddress, setIpAddress] = useState(null) // State to store the user's IP address
+  const textareaRef = useRef(null)
+
+  // Fetch the user's IP address on component mount
+  useEffect(() => {
+    fetch("https://api64.ipify.org?format=json") // Use ipify to get the IPv6 address
+      .then(response => response.json())
+      .then(data => setIpAddress(data.ip))
+      .catch(error => console.error("Failed to fetch IP address:", error))
+  }, [])
 
   const handleChange = e => {
     setState({ ...state, [e.target.name]: e.target.value })
@@ -23,10 +33,18 @@ const Form = ({ isVisible, toggleForm, toggleWish }) => {
     e.preventDefault()
     const form = e.target
 
+    // Block submissions from the specific IPv6 address
+    const blockedAddress = "2604:3d09:1183:500:c9fb:3c23:c212:a194"
+    if (ipAddress === blockedAddress) {
+      // Silently ignore the submission
+      return
+    }
+
     if (!state.textarea) {
       hide()
       toggleWish(true)
-      setState({}) // Clear the form input
+      setState({}) // Clear the state
+      if (textareaRef.current) textareaRef.current.value = "" // Clear the textarea
     } else {
       fetch("/", {
         method: "POST",
@@ -39,8 +57,8 @@ const Form = ({ isVisible, toggleForm, toggleWish }) => {
         .then(() => {
           hide()
           toggleWish(true)
-          setState({}) // Clear the form input
-          form.reset(); // Clear the form inputs
+          setState({}) // Clear the state
+          if (textareaRef.current) textareaRef.current.value = "" // Clear the textarea
         })
         .catch(error => alert(error))
     }
@@ -61,7 +79,11 @@ const Form = ({ isVisible, toggleForm, toggleWish }) => {
         >
           <input type="hidden" name="wish-form" value="wish" />
           <label htmlFor="text">Toss your wish into the fountain</label>
-          <textarea name="textarea" onChange={handleChange} />
+          <textarea
+            name="textarea"
+            onChange={handleChange}
+            ref={textareaRef}
+          />
           <button className="submit" type="submit">
             Submit
           </button>
