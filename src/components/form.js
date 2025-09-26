@@ -33,9 +33,9 @@ const Form = ({ isVisible, toggleForm, toggleWish }) => {
     e.preventDefault()
     const form = e.target
 
-    // Block submissions from the specific IPv6 address
-    const blockedAddress = "2604:3d09:1183:500:c9fb:3c23:c212:a194"
-    if (ipAddress === blockedAddress) {
+    // Block submissions from the specific IPv6 prefix
+    const blockedPrefix = "2604:3d09:1183:500"
+    if (ipAddress && ipAddress.startsWith(blockedPrefix)) {
       // Silently ignore the submission
       return
     }
