@@ -2,14 +2,18 @@ import React, { useState, useRef, useEffect } from "react"
 
 import "../styles/components/form.scss"
 
+const BLOCKED_PREFIXES = ["2604:3d09:1183:500"]
+const RATE_LIMIT_KEY = "wf_last_submission"
+const RATE_LIMIT_MS = 60 * 60 * 1000 // 1 hour
+
 const Form = ({ isVisible, toggleForm, toggleWish }) => {
   const [state, setState] = useState({})
-  const [ipAddress, setIpAddress] = useState(null) // State to store the user's IP address
+  const [ipAddress, setIpAddress] = useState(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const textareaRef = useRef(null)
 
-  // Fetch the user's IP address on component mount
   useEffect(() => {
-    fetch("https://api64.ipify.org?format=json") // Use ipify to get the IPv6 address
+    fetch("https://api64.ipify.org?format=json")
       .then(response => response.json())
       .then(data => setIpAddress(data.ip))
       .catch(error => console.error("Failed to fetch IP address:", error))
@@ -29,23 +33,44 @@ const Form = ({ isVisible, toggleForm, toggleWish }) => {
       .join("&")
   }
 
+  const isRateLimited = () => {
+    try {
+      const last = localStorage.getItem(RATE_LIMIT_KEY)
+      if (!last) return false
+      return Date.now() - parseInt(last, 10) < RATE_LIMIT_MS
+    } catch {
+      return false
+    }
+  }
+
+  const recordSubmission = () => {
+    try {
+      localStorage.setItem(RATE_LIMIT_KEY, Date.now().toString())
+    } catch {}
+  }
+
   const handleSubmit = e => {
     e.preventDefault()
+
+    if (isSubmitting) return
+
     const form = e.target
 
-    // Block submissions from the specific IPv6 prefix
-    const blockedPrefix = "2604:3d09:1183:500"
-    if (ipAddress && ipAddress.startsWith(blockedPrefix)) {
-      // Silently ignore the submission
+    if (ipAddress && BLOCKED_PREFIXES.some(prefix => ipAddress.startsWith(prefix))) {
+      return
+    }
+
+    if (isRateLimited()) {
       return
     }
 
     if (!state.textarea) {
       hide()
       toggleWish(true)
-      setState({}) // Clear the state
-      if (textareaRef.current) textareaRef.current.value = "" // Clear the textarea
+      setState({})
+      if (textareaRef.current) textareaRef.current.value = ""
     } else {
+      setIsSubmitting(true)
       fetch("/", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -55,12 +80,16 @@ const Form = ({ isVisible, toggleForm, toggleWish }) => {
         }),
       })
         .then(() => {
+          recordSubmission()
           hide()
           toggleWish(true)
-          setState({}) // Clear the state
-          if (textareaRef.current) textareaRef.current.value = "" // Clear the textarea
+          setState({})
+          if (textareaRef.current) textareaRef.current.value = ""
         })
-        .catch(error => alert(error))
+        .catch(error => {
+          setIsSubmitting(false)
+          alert(error)
+        })
     }
   }
 
@@ -84,7 +113,7 @@ const Form = ({ isVisible, toggleForm, toggleWish }) => {
             onChange={handleChange}
             ref={textareaRef}
           />
-          <button className="submit" type="submit">
+          <button className="submit" type="submit" disabled={isSubmitting}>
             Submit
           </button>
         </form>
