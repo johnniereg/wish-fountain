@@ -6,6 +6,24 @@ const BLOCKED_PREFIXES = ["2604:3d09:1183:500"]
 const RATE_LIMIT_KEY = "wf_last_submission"
 const RATE_LIMIT_MS = 60 * 60 * 1000 // 1 hour
 
+// Phrases unique to known repeat submitters
+const BLOCKED_PHRASES = [
+  "ecrignard",           // "Pooja divorce" submitter
+  "pooja get divorce",
+  "cousin pooja",   // "Pooja divorce" submitter
+  "acera aque",          // "Maria Filipina / Elde Brigitte" submitter
+  "villanueva calma",    // "Maria Filipina / Elde Brigitte" submitter
+  "arthur isabella read", // "Arthur as a girl" submitter
+  "and much more, because", // closing phrase in "Arthur/Alastor as a girl" submissions
+  "hazbin hotel",        // "Alastor as a girl" submitter
+  "loner strongest forevermore", // "$100 / loner" submitter
+]
+
+const isBlockedContent = text => {
+  const lower = text.toLowerCase()
+  return BLOCKED_PHRASES.some(phrase => lower.includes(phrase))
+}
+
 const Form = ({ isVisible, toggleForm, toggleWish }) => {
   const [state, setState] = useState({})
   const [ipAddress, setIpAddress] = useState(null)
@@ -61,6 +79,10 @@ const Form = ({ isVisible, toggleForm, toggleWish }) => {
     }
 
     if (isRateLimited()) {
+      return
+    }
+
+    if (state.textarea && isBlockedContent(state.textarea)) {
       return
     }
 
