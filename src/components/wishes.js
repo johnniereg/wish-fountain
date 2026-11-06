@@ -3,54 +3,44 @@ import { useState, useEffect } from "react"
 
 import "../styles/components/wishes.scss"
 
-const Wishes = ({ isVisible, toggleVisibility }) => {
-  const [wish, setWish] = useState({})
-  const [wishes, setWishes] = useState([])
+const NO_WISHES = "No one has made a wish... yet..."
+const UNAVAILABLE = "The fountain is quiet right now. Try again soon."
 
-  const hide = () => {
-    toggleVisibility(false)
-    setWish(wishes[Math.floor(Math.random() * wishes.length)])
-  }
+const Wishes = ({ isVisible, toggleVisibility }) => {
+  const [wish, setWish] = useState("")
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        let wish
-        const response = await fetch(
-          "https://api.netlify.com/api/v1/sites/94286650-7f42-4876-a795-167e52313b8f/forms/628bd98d7a3f3700087883c5/submissions",
-          {
-            method: "GET",
-            headers: {
-              "User-Agent": "Wish Fountain (johnniereg@gmail.com)",
-              Authorization:
-                "Bearer fz2f7iyTqw5TI-jkshSWuT8_DdCLYUpqQdK08KrBSFs",
-            },
-          }
-        )
-        const json = await response.json()
-        if (json.length) {
-          setWishes(json)
-          wish = json[Math.floor(Math.random() * json.length)] // pick a random wish
-        } else {
-          wish = {
-            body: "No one has made a wish... yet...",
-          }
-        }
-        setWish(wish)
-      } catch (error) {
-        console.log("Error: ", error)
-      }
+    if (!isVisible) return undefined
+
+    let isCurrent = true
+    setWish("")
+    fetch("/api/wish")
+      .then(response => {
+        if (!response.ok) throw new Error(`Status ${response.status}`)
+        return response.json()
+      })
+      .then(data => {
+        if (isCurrent) setWish(data.wish || NO_WISHES)
+      })
+      .catch(() => {
+        if (isCurrent) setWish(UNAVAILABLE)
+      })
+
+    return () => {
+      isCurrent = false
     }
-    fetchData()
-  }, [])
+  }, [isVisible])
 
   return (
     <div className={`wishes ${isVisible ? "visible" : "hidden"}`}>
       <div className="wishes__wrapper">
         <div className="wishes__text">
-          <p>{wish.body}</p>
+          <p>{wish}</p>
         </div>
-        <button className="wishes__close" onClick={hide}>
+        <button
+          className="wishes__close"
+          onClick={() => toggleVisibility(false)}
+        >
           X
         </button>
       </div>

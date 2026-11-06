@@ -1,3 +1,20 @@
+# Wish Fountain
+
+## Running the wish functions
+
+Wishes are read and submitted through the Netlify Functions in `netlify/functions`, and stored in Netlify Blobs. Older wishes are read from Netlify Forms. Nothing below belongs in the repo or the browser, so set these as environment variables in Netlify:
+
+| Variable                | Required | Purpose                                                                                               |
+| ----------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
+| `WISH_SECRET`           | Yes      | A long random string. Signs form tokens and hashes networks. Changing it resets per-network tracking. |
+| `NETLIFY_API_TOKEN`     | No       | Reads the older Netlify Forms wishes. Without it, only wishes in Blobs are shown.                     |
+| `WISH_BLOCKED_PHRASES`  | No       | Text to block, separated by `\|`. For example: `first phrase\|second phrase`.                         |
+| `WISH_BLOCKED_NETWORKS` | No       | Comma-separated IPs or CIDR ranges. For example: `2001:db8:1:500::/64, 203.0.113.0/24`.               |
+
+Run the tests with `npm test`.
+
+---
+
 <!-- AUTO-GENERATED-CONTENT:START (STARTER) -->
 <p align="center">
   <a href="https://www.gatsbyjs.com">

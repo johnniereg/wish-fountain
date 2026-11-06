@@ -28,6 +28,20 @@
   }
 
   .wish-form {
+    &__extra {
+      height: 1px;
+      left: -9999px;
+      overflow: hidden;
+      position: absolute;
+      width: 1px;
+    }
+
+    &__error {
+      color: yellow;
+      font-size: 12px;
+      margin: 6px 0 0;
+    }
+
     display: flex;
     color: black;
     flex-direction: column;
