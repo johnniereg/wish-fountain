@@ -11,6 +11,8 @@ Wishes are read and submitted through the Netlify Functions in `netlify/function
 | `WISH_BLOCKED_PHRASES`  | No       | Text to block, separated by `\|`. For example: `first phrase\|second phrase`.                         |
 | `WISH_BLOCKED_NETWORKS` | No       | Comma-separated IPs or CIDR ranges. For example: `2001:db8:1:500::/64, 203.0.113.0/24`.               |
 
+A blocked network applies to new submissions and older Netlify Forms wishes. Wishes already in Blobs keep only a hashed network, so remove those from the Blobs store, or add a blocked phrase. The change can take up to five minutes to show.
+
 Run the tests with `npm test`.
 
 ---

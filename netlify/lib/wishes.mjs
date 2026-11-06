@@ -52,40 +52,52 @@ export const createWishService = ({
     return wishes
   }
 
-  const rebuildPool = async snapshot => {
+  // Filters by IP while it's available, then drops it for good.
+  const sanitizeLegacy = wishes =>
+    wishes
+      .filter(wish => !wish.ip || !isBlockedIp(wish.ip, networks))
+      .map(wish => ({
+        text: wish.text,
+        network: wish.ip ? hashNetwork(secret, wish.ip) : null,
+      }))
+
+  const rebuildSnapshot = async previous => {
     const stored = await readStoredWishes()
     let legacy
     try {
-      legacy = await fetchLegacy()
+      legacy = sanitizeLegacy(await fetchLegacy())
     } catch (error) {
+      // New wishes must keep appearing, so only the legacy part is reused.
       console.error("Could not read legacy wishes:", error.message)
-      // Don't overwrite a complete pool with a partial one.
-      if (snapshot) return { pool: snapshot.pool, persist: false }
-      return {
-        pool: buildPool(stored, { phrases, networks, secret }),
-        persist: false,
-      }
+      legacy = previous?.legacy || []
     }
-    return {
-      pool: buildPool([...stored, ...legacy], { phrases, networks, secret }),
-      persist: true,
-    }
+    const pool = buildPool([...stored, ...legacy], {
+      phrases,
+      networks,
+      secret,
+    })
+    return { at: now(), pool, legacy }
   }
 
   const loadPool = async () => {
     const time = now()
     if (memory && time - memory.at < MEMORY_TTL_MS) return memory.pool
 
-    const snapshot = await store.get(SNAPSHOT_KEY, { type: "json" })
-    if (snapshot && time - snapshot.at < SNAPSHOT_TTL_MS) {
-      memory = { at: time, pool: snapshot.pool }
-      return snapshot.pool
+    const previous = await store.get(SNAPSHOT_KEY, { type: "json" })
+    if (previous && time - previous.at < SNAPSHOT_TTL_MS) {
+      memory = { at: time, pool: previous.pool }
+      return previous.pool
     }
 
-    const { pool, persist } = await rebuildPool(snapshot)
-    memory = { at: time, pool }
-    if (persist) await store.setJSON(SNAPSHOT_KEY, { at: time, pool })
-    return pool
+    const snapshot = await rebuildSnapshot(previous)
+    memory = { at: time, pool: snapshot.pool }
+    try {
+      await store.setJSON(SNAPSHOT_KEY, snapshot)
+    } catch (error) {
+      // Only a cache: the pool is still good for this request.
+      console.error("Could not save wish snapshot:", error.message)
+    }
+    return snapshot.pool
   }
 
   const randomWish = async ip => {
@@ -98,19 +110,18 @@ export const createWishService = ({
     return choices[Math.floor(random() * choices.length)].text
   }
 
-  // Returns ms to wait if limited, or records the attempt and returns 0.
-  const checkRateLimit = async network => {
-    const key = `rate/${network}`
+  const readRateLimit = async network => {
     const time = now()
-    const record = await store.get(key, { type: "json" })
+    const record = await store.get(`rate/${network}`, { type: "json" })
     const recent = (record?.at || []).filter(at => time - at < HOUR_MS)
-    const latest = recent.length ? Math.max(...recent) : 0
-    if (time - latest < COOLDOWN_MS) return COOLDOWN_MS - (time - latest)
-    if (recent.length >= MAX_PER_HOUR) {
-      return HOUR_MS - (time - Math.min(...recent))
+    let waitMs = 0
+    if (recent.length) {
+      waitMs = Math.max(0, COOLDOWN_MS - (time - Math.max(...recent)))
     }
-    await store.setJSON(key, { at: [...recent, time] })
-    return 0
+    if (!waitMs && recent.length >= MAX_PER_HOUR) {
+      waitMs = HOUR_MS - (time - Math.min(...recent))
+    }
+    return { recent, waitMs }
   }
 
   // A dropped result looks like success, so spammers can't tune against it.
@@ -137,7 +148,7 @@ export const createWishService = ({
     if (isBlockedText(wish, phrases)) return dropped("blocked_text")
 
     const network = hashNetwork(secret, ip)
-    const waitMs = await checkRateLimit(network)
+    const { recent, waitMs } = await readRateLimit(network)
     if (waitMs > 0) {
       return {
         status: 429,
@@ -158,6 +169,8 @@ export const createWishService = ({
 
     const createdAt = now()
     await store.setJSON(wishKey(createdAt), { text: wish, network, createdAt })
+    // Recorded last, so a failed save doesn't count against the visitor.
+    await store.setJSON(`rate/${network}`, { at: [...recent, createdAt] })
     return { status: 200, body: { ok: true } }
   }
 

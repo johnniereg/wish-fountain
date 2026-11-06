@@ -28,6 +28,16 @@
   }
 
   .wish-form {
+    display: flex;
+    color: black;
+    flex-direction: column;
+    margin-left: 6%;
+    width: 30%;
+
+    @media screen and (min-width: 769px) {
+      max-width: 250px;
+    }
+
     &__extra {
       height: 1px;
       left: -9999px;
@@ -40,16 +50,6 @@
       color: yellow;
       font-size: 12px;
       margin: 6px 0 0;
-    }
-
-    display: flex;
-    color: black;
-    flex-direction: column;
-    margin-left: 6%;
-    width: 30%;
-
-    @media screen and (min-width: 769px) {
-      max-width: 250px;
     }
 
     label {

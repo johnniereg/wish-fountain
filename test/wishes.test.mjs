@@ -221,6 +221,57 @@ test("a legacy outage keeps the last good pool", async () => {
   assert.equal(store.data.get("cache/pool").pool.length, 1)
 })
 
+test("a legacy outage doesn't freeze the pool", async () => {
+  let healthy = true
+  const { submit, service, clock, store } = setup({
+    fetchLegacy: async () => {
+      if (!healthy) throw new Error("down")
+      return [{ text: "an old wish", ip: "4.4.4.4" }]
+    },
+  })
+  await service.randomWish(IP)
+  healthy = false
+  await submit({ text: "a newer wish" }, "7.7.7.7")
+  clock.time += 6 * 60 * 1000
+  await service.randomWish(IP)
+  const texts = store.data.get("cache/pool").pool.map(wish => wish.text)
+  assert.deepEqual(texts, ["a newer wish", "an old wish"])
+})
+
+test("legacy IPs never reach the snapshot", async () => {
+  const { service, store } = setup({
+    fetchLegacy: async () => [{ text: "an old wish", ip: "4.4.4.4" }],
+  })
+  await service.randomWish(IP)
+  assert.doesNotMatch(
+    JSON.stringify(store.data.get("cache/pool")),
+    /4\.4\.4\.4/
+  )
+})
+
+test("a failed save doesn't use up the rate limit", async () => {
+  const { submit, store, wishes } = setup()
+  const original = store.setJSON
+  store.setJSON = async (key, value) => {
+    if (key.startsWith("wish/")) throw new Error("write failed")
+    return original(key, value)
+  }
+  await assert.rejects(submit({ text: "a wish" }))
+  store.setJSON = original
+  assert.equal((await submit({ text: "a wish" })).status, 200)
+  assert.equal(wishes().length, 1)
+})
+
+test("a failed snapshot save still serves the wish", async () => {
+  const { service, store } = setup({
+    fetchLegacy: async () => [{ text: "an old wish", ip: "4.4.4.4" }],
+  })
+  store.setJSON = async () => {
+    throw new Error("write failed")
+  }
+  assert.equal(await service.randomWish(IP), "an old wish")
+})
+
 test("a legacy outage with no snapshot still serves new wishes", async () => {
   const { submit, service, clock } = setup({
     fetchLegacy: async () => {
@@ -228,7 +279,7 @@ test("a legacy outage with no snapshot still serves new wishes", async () => {
     },
   })
   await submit({ text: "a new wish" }, "7.7.7.7")
-  clock.time += 61_000
+  clock.time += 6 * 60 * 1000
   assert.equal(await service.randomWish(IP), "a new wish")
 })
 

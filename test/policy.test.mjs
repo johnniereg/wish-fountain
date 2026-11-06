@@ -76,7 +76,10 @@ test("blocked networks match exactly, unlike a string prefix", () => {
 })
 
 test("invalid blocked network entries are skipped", () => {
-  assert.equal(parseNetworks("nope, 1.2.3.0/99, 1.2.3.4/8/2, ").length, 0)
+  assert.equal(
+    parseNetworks("nope, 1.2.3.0/99, 1.2.3.4/8/2, 1.2.3.4/, ").length,
+    0
+  )
   assert.equal(parseNetworks(undefined).length, 0)
 })
 

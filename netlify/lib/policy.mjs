@@ -91,7 +91,12 @@ export const parseNetworks = raw => {
     if (!trimmed) continue
     const [address, prefixText, extra] = trimmed.split("/")
     const parsed = parseIp(address)
-    const prefix = prefixText === undefined ? parsed?.bits : Number(prefixText)
+    const prefix =
+      prefixText === undefined
+        ? parsed?.bits
+        : /^\d+$/.test(prefixText)
+        ? Number(prefixText)
+        : NaN
     const valid =
       parsed &&
       extra === undefined &&

@@ -8,6 +8,8 @@ const MIN_FILL_MS = 2100
 
 const MESSAGES = {
   rate_limited: "The fountain needs a moment. Try again in about a minute.",
+  rate_limited_long:
+    "The fountain has had plenty of wishes from here. Please try again later.",
   stale_form: "Something got stale. Please submit your wish again.",
   too_long: `Wishes can be up to ${MAX_WISH_LENGTH} characters.`,
 }
@@ -75,7 +77,12 @@ const Form = ({ isVisible, toggleForm, toggleWish }) => {
         return
       }
       const data = await response.json().catch(() => ({}))
-      setError(MESSAGES[data.error] || DEFAULT_MESSAGE)
+      const retryAfter = Number(response.headers.get("Retry-After"))
+      const code =
+        data.error === "rate_limited" && retryAfter > 120
+          ? "rate_limited_long"
+          : data.error
+      setError(MESSAGES[code] || DEFAULT_MESSAGE)
       if (data.error === "stale_form") refreshToken()
     } catch {
       setError(DEFAULT_MESSAGE)
@@ -89,7 +96,12 @@ const Form = ({ isVisible, toggleForm, toggleWish }) => {
   return (
     <div className={classes}>
       <div className="form__wrapper">
-        <form className="wish-form" name="wish-form" onSubmit={handleSubmit}>
+        <form
+          className="wish-form"
+          name="wish-form"
+          method="post"
+          onSubmit={handleSubmit}
+        >
           <div className="wish-form__extra" aria-hidden="true">
             <label>
               Subject
