@@ -2,116 +2,92 @@ import React, { useState, useRef, useEffect } from "react"
 
 import "../styles/components/form.scss"
 
-const BLOCKED_PREFIXES = ["2604:3d09:1183:500"]
-const RATE_LIMIT_KEY = "wf_last_submission"
-const RATE_LIMIT_MS = 60 * 60 * 1000 // 1 hour
+const MAX_WISH_LENGTH = 800
+// Slightly over the server's minimum, so a quick wish is never dropped as a bot.
+const MIN_FILL_MS = 2100
 
-// Phrases unique to known repeat submitters
-const BLOCKED_PHRASES = [
-  "ecrignard",           // "Pooja divorce" submitter
-  "pooja get divorce",
-  "cousin pooja",   // "Pooja divorce" submitter
-  "acera aque",          // "Maria Filipina / Elde Brigitte" submitter
-  "villanueva calma",    // "Maria Filipina / Elde Brigitte" submitter
-  "arthur isabella read", // "Arthur as a girl" submitter
-  "and much more, because", // closing phrase in "Arthur/Alastor as a girl" submissions
-  "hazbin hotel",        // "Alastor as a girl" submitter
-  "loner strongest forevermore", // "$100 / loner" submitter
-]
+const MESSAGES = {
+  rate_limited: "The fountain needs a moment. Try again in about a minute.",
+  rate_limited_long:
+    "The fountain has had plenty of wishes from here. Please try again later.",
+  stale_form: "Something got stale. Please submit your wish again.",
+  too_long: `Wishes can be up to ${MAX_WISH_LENGTH} characters.`,
+}
+const DEFAULT_MESSAGE = "Your wish didn't make it. Please try again."
 
-const isBlockedContent = text => {
-  const lower = text.toLowerCase()
-  return BLOCKED_PHRASES.some(phrase => lower.includes(phrase))
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+const requestToken = async () => {
+  const response = await fetch("/api/wish-token")
+  if (!response.ok) throw new Error(`Status ${response.status}`)
+  const { token } = await response.json()
+  return { value: token, receivedAt: Date.now() }
 }
 
 const Form = ({ isVisible, toggleForm, toggleWish }) => {
-  const [state, setState] = useState({})
-  const [ipAddress, setIpAddress] = useState(null)
+  const [text, setText] = useState("")
+  const [honeypot, setHoneypot] = useState("")
+  const [error, setError] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const textareaRef = useRef(null)
+  const token = useRef(null)
+
+  const refreshToken = () => {
+    token.current = null
+    const pending = requestToken().then(fresh => {
+      if (token.current === null) token.current = fresh
+    })
+    return pending.catch(() => {})
+  }
 
   useEffect(() => {
-    fetch("https://api64.ipify.org?format=json")
-      .then(response => response.json())
-      .then(data => setIpAddress(data.ip))
-      .catch(error => console.error("Failed to fetch IP address:", error))
-  }, [])
+    if (isVisible) refreshToken()
+  }, [isVisible])
 
-  const handleChange = e => {
-    setState({ ...state, [e.target.name]: e.target.value })
-  }
-
-  const hide = () => {
+  const finish = () => {
+    setText("")
+    setHoneypot("")
+    setError("")
     toggleForm(false)
+    toggleWish(true)
   }
 
-  const encode = data => {
-    return Object.keys(data)
-      .map(key => encodeURIComponent(key) + "=" + encodeURIComponent(data[key]))
-      .join("&")
-  }
-
-  const isRateLimited = () => {
-    try {
-      const last = localStorage.getItem(RATE_LIMIT_KEY)
-      if (!last) return false
-      return Date.now() - parseInt(last, 10) < RATE_LIMIT_MS
-    } catch {
-      return false
-    }
-  }
-
-  const recordSubmission = () => {
-    try {
-      localStorage.setItem(RATE_LIMIT_KEY, Date.now().toString())
-    } catch {}
-  }
-
-  const handleSubmit = e => {
+  const handleSubmit = async e => {
     e.preventDefault()
-
     if (isSubmitting) return
 
-    const form = e.target
-
-    if (ipAddress && BLOCKED_PREFIXES.some(prefix => ipAddress.startsWith(prefix))) {
+    if (!text.trim()) {
+      finish()
       return
     }
 
-    if (isRateLimited()) {
-      return
-    }
+    setIsSubmitting(true)
+    setError("")
+    try {
+      if (!token.current) token.current = await requestToken()
+      const { value, receivedAt } = token.current
+      await wait(receivedAt + MIN_FILL_MS - Date.now())
 
-    if (state.textarea && isBlockedContent(state.textarea)) {
-      return
-    }
-
-    if (!state.textarea) {
-      hide()
-      toggleWish(true)
-      setState({})
-      if (textareaRef.current) textareaRef.current.value = ""
-    } else {
-      setIsSubmitting(true)
-      fetch("/", {
+      const response = await fetch("/api/wish", {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: encode({
-          "form-name": form.getAttribute("name"),
-          ...state,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, token: value, honeypot }),
       })
-        .then(() => {
-          recordSubmission()
-          hide()
-          toggleWish(true)
-          setState({})
-          if (textareaRef.current) textareaRef.current.value = ""
-        })
-        .catch(error => {
-          setIsSubmitting(false)
-          alert(error)
-        })
+      if (response.ok) {
+        finish()
+        return
+      }
+      const data = await response.json().catch(() => ({}))
+      const retryAfter = Number(response.headers.get("Retry-After"))
+      const code =
+        data.error === "rate_limited" && retryAfter > 120
+          ? "rate_limited_long"
+          : data.error
+      setError(MESSAGES[code] || DEFAULT_MESSAGE)
+      if (data.error === "stale_form") refreshToken()
+    } catch {
+      setError(DEFAULT_MESSAGE)
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -124,17 +100,34 @@ const Form = ({ isVisible, toggleForm, toggleWish }) => {
           className="wish-form"
           name="wish-form"
           method="post"
-          data-netlify="true"
-          data-netlify-honeypot="bot-field"
           onSubmit={handleSubmit}
         >
-          <input type="hidden" name="wish-form" value="wish" />
-          <label htmlFor="text">Toss your wish into the fountain</label>
+          <div className="wish-form__extra" aria-hidden="true">
+            <label>
+              Subject
+              <input
+                type="text"
+                name="wish_subject"
+                tabIndex={-1}
+                autoComplete="off"
+                value={honeypot}
+                onChange={e => setHoneypot(e.target.value)}
+              />
+            </label>
+          </div>
+          <label htmlFor="wish-text">Toss your wish into the fountain</label>
           <textarea
-            name="textarea"
-            onChange={handleChange}
-            ref={textareaRef}
+            id="wish-text"
+            name="wish"
+            maxLength={MAX_WISH_LENGTH}
+            value={text}
+            onChange={e => setText(e.target.value)}
           />
+          {error && (
+            <p className="wish-form__error" role="alert">
+              {error}
+            </p>
+          )}
           <button className="submit" type="submit" disabled={isSubmitting}>
             Submit
           </button>

@@ -38,6 +38,20 @@
       max-width: 250px;
     }
 
+    &__extra {
+      height: 1px;
+      left: -9999px;
+      overflow: hidden;
+      position: absolute;
+      width: 1px;
+    }
+
+    &__error {
+      color: yellow;
+      font-size: 12px;
+      margin: 6px 0 0;
+    }
+
     label {
       color: yellow;
       font-size: 14px;
