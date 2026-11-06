@@ -359,10 +359,75 @@ test("unsupported methods and missing configuration are handled", async () => {
   )
 })
 
+test("the legacy reader ignores posts made after the move to Blobs", async () => {
+  const submission = (created_at, textarea) => ({
+    created_at,
+    data: { textarea, ip: "1.1.1.1" },
+  })
+  const read = createLegacyReader({
+    apiToken: "t",
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => [
+        submission("2027-01-01T00:00:00.000Z", "direct post"),
+        submission(undefined, "no date"),
+        submission("2026-01-01T00:00:00.000Z", "real old wish"),
+      ],
+    }),
+  })
+  assert.deepEqual(
+    (await read()).map(wish => wish.text),
+    ["real old wish"]
+  )
+})
+
+test("the legacy reader skips past newer posts to find older wishes", async () => {
+  let calls = 0
+  const newer = Array.from({ length: 100 }, () => ({
+    created_at: "2027-01-01T00:00:00.000Z",
+    data: { textarea: "direct post" },
+  }))
+  const older = [
+    {
+      created_at: "2026-01-01T00:00:00.000Z",
+      data: { textarea: "real old wish" },
+    },
+  ]
+  const read = createLegacyReader({
+    apiToken: "t",
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => (++calls === 1 ? newer : older),
+    }),
+  })
+  assert.deepEqual(
+    (await read()).map(wish => wish.text),
+    ["real old wish"]
+  )
+})
+
+test("the legacy reader stops once it has enough wishes", async () => {
+  let calls = 0
+  const full = Array.from({ length: 100 }, (_, i) => ({
+    created_at: "2026-01-01T00:00:00.000Z",
+    data: { textarea: `wish ${i}` },
+  }))
+  const read = createLegacyReader({
+    apiToken: "t",
+    fetchImpl: async () => {
+      calls++
+      return { ok: true, json: async () => full }
+    },
+  })
+  assert.equal((await read()).length, 300)
+  assert.equal(calls, 3)
+})
+
 test("the legacy reader pages through submissions and reports failures", async () => {
   const requests = []
   const page = count =>
     Array.from({ length: count }, (_, i) => ({
+      created_at: "2026-01-01T00:00:00.000Z",
       data: { textarea: `wish ${i}`, ip: "1.1.1.1" },
     }))
   const responses = [page(100), page(2)]
