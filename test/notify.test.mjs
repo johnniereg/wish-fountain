@@ -18,8 +18,10 @@ test("posts only the wish text to the old form", async () => {
   assert.equal(calls[0].options.method, "POST")
   assert.deepEqual(Object.fromEntries(calls[0].options.body), {
     "form-name": "wish-form",
+    "bot-field": "",
     textarea: "a wish & more",
   })
+  assert.equal(calls[0].options.redirect, "manual")
 })
 
 test("does nothing without a site URL", async () => {
@@ -37,6 +39,7 @@ test("does nothing without a site URL", async () => {
 test("never throws when Forms fails", async () => {
   for (const fetchImpl of [
     async () => ({ ok: false, status: 404 }),
+    async () => ({ ok: false, status: 301 }),
     async () => {
       throw new Error("network down")
     },

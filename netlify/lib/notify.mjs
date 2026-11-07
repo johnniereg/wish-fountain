@@ -12,7 +12,15 @@ export const createNotifier = ({ siteUrl, fetchImpl = fetch }) => {
       const response = await fetchImpl(new URL("/", siteUrl), {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ "form-name": FORM_NAME, textarea: text }),
+        // The empty honeypot passes Netlify's check. Direct-post bots that
+        // fill every field are rejected.
+        body: new URLSearchParams({
+          "form-name": FORM_NAME,
+          "bot-field": "",
+          textarea: text,
+        }),
+        // A redirect would turn this into a GET that silently "succeeds".
+        redirect: "manual",
         signal: AbortSignal.timeout(TIMEOUT_MS),
       })
       if (!response.ok) throw new Error(`Forms returned ${response.status}`)

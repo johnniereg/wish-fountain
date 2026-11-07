@@ -15,7 +15,7 @@ A blocked network applies to new submissions. Wishes already in Blobs, including
 
 Accepted wishes are also posted to the `wish-form` Netlify form, only on production, so its email notifications keep working. Keep form detection turned on for that.
 
-`NETLIFY_API_TOKEN` is only needed until the older wishes are copied into Blobs as `legacy/archive`, which happens the first time the pool is built. After that the token can be removed. Delete that blob to read them again.
+`NETLIFY_API_TOKEN` is only needed until the older wishes are copied into Blobs as `legacy/archive`, which happens the first time the pool is built. After that the token can be removed. Delete that blob to read them again. The archive keeps hashed networks made with the current `WISH_SECRET`, so changing the secret means older wishes no longer match their networks.
 
 Run the tests with `npm test`.
 

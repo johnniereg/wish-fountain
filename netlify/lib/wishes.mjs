@@ -67,11 +67,12 @@ export const createWishService = ({
   // the old form for notifications, so re-reading it would mix them in.
   const readLegacy = async () => {
     const archive = await store.get(ARCHIVE_KEY, { type: "json" })
-    if (archive) return archive.wishes
+    if (Array.isArray(archive?.wishes)) return archive.wishes
 
-    const wishes = sanitizeLegacy(await fetchLegacy())
-    // Empty usually means no token yet, so try again next time.
-    if (wishes.length) {
+    const result = await fetchLegacy()
+    const wishes = sanitizeLegacy(result.wishes)
+    // Only a full read is kept for good. Anything else is retried next time.
+    if (result.complete && wishes.length) {
       try {
         await store.setJSON(ARCHIVE_KEY, { at: now(), wishes })
       } catch (error) {
@@ -150,7 +151,8 @@ export const createWishService = ({
     return { status: 200, body: { ok: true } }
   }
 
-  const submit = async ({ text, token, honeypot }, ip) => {
+  // `defer` lets the platform finish the notification after responding.
+  const submit = async ({ text, token, honeypot }, ip, { defer } = {}) => {
     if (honeypot) return dropped("honeypot")
 
     const wish = typeof text === "string" ? text.trim() : ""
@@ -191,7 +193,9 @@ export const createWishService = ({
     await store.setJSON(wishKey(createdAt), { text: wish, network, createdAt })
     // Recorded last, so a failed save doesn't count against the visitor.
     await store.setJSON(`rate/${network}`, { at: [...recent, createdAt] })
-    await notify(wish)
+    const notifying = notify(wish)
+    if (defer) defer(notifying)
+    else await notifying
     return { status: 200, body: { ok: true } }
   }
 
