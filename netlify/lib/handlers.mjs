@@ -26,7 +26,7 @@ const isSameOrigin = req => {
   }
 }
 
-const handleSubmit = async (req, ip, service) => {
+const handleSubmit = async (req, ip, service, defer) => {
   if (!isSameOrigin(req)) return json(403, { error: "forbidden" })
 
   const raw = await req.text()
@@ -42,20 +42,22 @@ const handleSubmit = async (req, ip, service) => {
     return json(400, { error: "bad_request" })
   }
 
-  const result = await service.submit(payload, ip)
+  const result = await service.submit(payload, ip, { defer })
   const headers = result.retryAfter
     ? { "Retry-After": String(result.retryAfter) }
     : {}
   return json(result.status, result.body, headers)
 }
 
-export const handleWishRequest = async (req, ip, getService) => {
+export const handleWishRequest = async (req, ip, getService, defer) => {
   if (req.method !== "GET" && req.method !== "POST") {
     return json(405, { error: "method_not_allowed" }, { Allow: "GET, POST" })
   }
   try {
     const service = getService()
-    if (req.method === "POST") return await handleSubmit(req, ip, service)
+    if (req.method === "POST") {
+      return await handleSubmit(req, ip, service, defer)
+    }
     return json(200, { wish: await service.randomWish(ip) })
   } catch (error) {
     return unavailable(error)

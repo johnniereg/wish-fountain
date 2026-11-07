@@ -38,7 +38,7 @@ const setup = (overrides = {}) => {
   const store = createStore()
   const service = createWishService({
     store,
-    fetchLegacy: async () => [],
+    fetchLegacy: async () => ({ wishes: [], complete: false }),
     secret: SECRET,
     phrases: ["forbidden phrase"],
     networks: parseNetworks("9.9.9.0/24"),
@@ -179,31 +179,34 @@ test("randomWish prefers someone else's wish and falls back to any", async () =>
 
 test("wishes merge legacy records and filter them", async () => {
   const { service } = setup({
-    fetchLegacy: async () => [
-      { text: "an old wish", ip: "4.4.4.4" },
-      { text: "old forbidden phrase", ip: "4.4.4.5" },
-      { text: "old blocked network", ip: "9.9.9.1" },
-    ],
+    fetchLegacy: async () => ({
+      wishes: [
+        { text: "an old wish", ip: "4.4.4.4" },
+        { text: "old forbidden phrase", ip: "4.4.4.5" },
+        { text: "old blocked network", ip: "9.9.9.1" },
+      ],
+      complete: true,
+    }),
   })
   assert.equal(await service.randomWish(IP), "an old wish")
 })
 
 test("the pool is served from cache until it goes stale", async () => {
-  let calls = 0
-  const { service, clock } = setup({
-    fetchLegacy: async () => {
-      calls++
-      return [{ text: "an old wish", ip: "4.4.4.4" }]
-    },
-  })
+  const { service, store, clock } = setup()
+  let lists = 0
+  const list = store.list
+  store.list = async options => {
+    lists++
+    return list(options)
+  }
   await service.randomWish(IP)
   await service.randomWish(IP)
   clock.time += 2 * 60 * 1000
   await service.randomWish(IP)
-  assert.equal(calls, 1)
+  assert.equal(lists, 1)
   clock.time += 4 * 60 * 1000
   await service.randomWish(IP)
-  assert.equal(calls, 2)
+  assert.equal(lists, 2)
 })
 
 test("a legacy outage keeps the last good pool", async () => {
@@ -211,7 +214,10 @@ test("a legacy outage keeps the last good pool", async () => {
   const { service, clock, store } = setup({
     fetchLegacy: async () => {
       if (!healthy) throw new Error("down")
-      return [{ text: "an old wish", ip: "4.4.4.4" }]
+      return {
+        wishes: [{ text: "an old wish", ip: "4.4.4.4" }],
+        complete: true,
+      }
     },
   })
   await service.randomWish(IP)
@@ -226,7 +232,10 @@ test("a legacy outage doesn't freeze the pool", async () => {
   const { submit, service, clock, store } = setup({
     fetchLegacy: async () => {
       if (!healthy) throw new Error("down")
-      return [{ text: "an old wish", ip: "4.4.4.4" }]
+      return {
+        wishes: [{ text: "an old wish", ip: "4.4.4.4" }],
+        complete: true,
+      }
     },
   })
   await service.randomWish(IP)
@@ -240,7 +249,10 @@ test("a legacy outage doesn't freeze the pool", async () => {
 
 test("legacy IPs never reach the snapshot", async () => {
   const { service, store } = setup({
-    fetchLegacy: async () => [{ text: "an old wish", ip: "4.4.4.4" }],
+    fetchLegacy: async () => ({
+      wishes: [{ text: "an old wish", ip: "4.4.4.4" }],
+      complete: true,
+    }),
   })
   await service.randomWish(IP)
   assert.doesNotMatch(
@@ -264,7 +276,10 @@ test("a failed save doesn't use up the rate limit", async () => {
 
 test("a failed snapshot save still serves the wish", async () => {
   const { service, store } = setup({
-    fetchLegacy: async () => [{ text: "an old wish", ip: "4.4.4.4" }],
+    fetchLegacy: async () => ({
+      wishes: [{ text: "an old wish", ip: "4.4.4.4" }],
+      complete: true,
+    }),
   })
   store.setJSON = async () => {
     throw new Error("write failed")
@@ -285,7 +300,10 @@ test("a legacy outage with no snapshot still serves new wishes", async () => {
 
 test("GET returns only wish text, with no personal data", async () => {
   const { service } = setup({
-    fetchLegacy: async () => [{ text: "an old wish", ip: "4.4.4.4" }],
+    fetchLegacy: async () => ({
+      wishes: [{ text: "an old wish", ip: "4.4.4.4" }],
+      complete: true,
+    }),
   })
   const response = await handleWishRequest(
     new Request(`${ORIGIN}/api/wish`),
@@ -376,7 +394,7 @@ test("the legacy reader ignores posts made after the move to Blobs", async () =>
     }),
   })
   assert.deepEqual(
-    (await read()).map(wish => wish.text),
+    (await read()).wishes.map(wish => wish.text),
     ["real old wish"]
   )
 })
@@ -401,7 +419,7 @@ test("the legacy reader skips past newer posts to find older wishes", async () =
     }),
   })
   assert.deepEqual(
-    (await read()).map(wish => wish.text),
+    (await read()).wishes.map(wish => wish.text),
     ["real old wish"]
   )
 })
@@ -419,7 +437,9 @@ test("the legacy reader stops once it has enough wishes", async () => {
       return { ok: true, json: async () => full }
     },
   })
-  assert.equal((await read()).length, 300)
+  const result = await read()
+  assert.equal(result.wishes.length, 300)
+  assert.equal(result.complete, true)
   assert.equal(calls, 3)
 })
 
@@ -438,17 +458,138 @@ test("the legacy reader pages through submissions and reports failures", async (
       return { ok: true, json: async () => responses.shift() }
     },
   })
-  const wishes = await read()
+  const { wishes, complete } = await read()
+  assert.equal(complete, true)
   assert.equal(wishes.length, 102)
   assert.equal(requests.length, 2)
   assert.match(requests[1].url, /page=2/)
   assert.equal(requests[0].auth, "Bearer t")
 
-  assert.deepEqual(await createLegacyReader({})(), [])
+  assert.deepEqual(await createLegacyReader({})(), {
+    wishes: [],
+    complete: false,
+  })
 
   const failing = createLegacyReader({
     apiToken: "t",
     fetchImpl: async () => ({ ok: false, status: 401 }),
   })
   await assert.rejects(failing, /401/)
+})
+
+test("accepted wishes are passed on for notifications", async () => {
+  const sent = []
+  const { submit } = setup({ notify: async text => sent.push(text) })
+  await submit({ text: "  a real wish  " })
+  await submit({ text: "bot wish", honeypot: "x" }, "7.7.7.7")
+  await submit({ text: "this has a forbidden phrase" }, "8.8.8.8")
+  await submit({ text: "too soon" })
+  assert.deepEqual(sent, ["a real wish"])
+})
+
+test("older wishes are read once and archived", async () => {
+  let calls = 0
+  const { service, store, clock } = setup({
+    fetchLegacy: async () => {
+      calls++
+      return {
+        wishes: [{ text: "an old wish", ip: "4.4.4.4" }],
+        complete: true,
+      }
+    },
+  })
+  assert.equal(await service.randomWish(IP), "an old wish")
+  clock.time += 6 * 60 * 1000
+  assert.equal(await service.randomWish(IP), "an old wish")
+  assert.equal(calls, 1)
+  assert.doesNotMatch(
+    JSON.stringify(store.data.get("legacy/archive")),
+    /4\.4\.4\.4/
+  )
+})
+
+test("an empty legacy read isn't archived", async () => {
+  let calls = 0
+  const { service, clock, store } = setup({
+    fetchLegacy: async () => {
+      calls++
+      return { wishes: [], complete: true }
+    },
+  })
+  await service.randomWish(IP)
+  clock.time += 6 * 60 * 1000
+  await service.randomWish(IP)
+  assert.equal(calls, 2)
+  assert.equal(store.data.has("legacy/archive"), false)
+})
+
+test("a read stopped by the page limit isn't archived", async () => {
+  const newer = Array.from({ length: 100 }, () => ({
+    created_at: "2027-01-01T00:00:00.000Z",
+    data: { textarea: "direct post" },
+  }))
+  const read = createLegacyReader({
+    apiToken: "t",
+    fetchImpl: async () => ({ ok: true, json: async () => newer }),
+  })
+  assert.deepEqual(await read(), { wishes: [], complete: false })
+
+  let calls = 0
+  const { service, clock, store } = setup({
+    fetchLegacy: async () => {
+      calls++
+      return {
+        wishes: [{ text: "an old wish", ip: "4.4.4.4" }],
+        complete: false,
+      }
+    },
+  })
+  assert.equal(await service.randomWish(IP), "an old wish")
+  assert.equal(store.data.has("legacy/archive"), false)
+  clock.time += 6 * 60 * 1000
+  await service.randomWish(IP)
+  assert.equal(calls, 2)
+})
+
+test("a malformed archive is ignored", async () => {
+  const { service, store } = setup({
+    fetchLegacy: async () => ({
+      wishes: [{ text: "an old wish", ip: "4.4.4.4" }],
+      complete: true,
+    }),
+  })
+  store.data.set("legacy/archive", { broken: true })
+  assert.equal(await service.randomWish(IP), "an old wish")
+})
+
+test("notifications can finish after the response", async () => {
+  const deferred = []
+  const { service, clock } = setup({ notify: async () => "sent" })
+  const token = service.createToken()
+  clock.time += MIN_FILL_MS
+  const result = await service.submit({ text: "a wish", token }, IP, {
+    defer: promise => deferred.push(promise),
+  })
+  assert.equal(result.status, 200)
+  assert.equal(deferred.length, 1)
+  assert.equal(await deferred[0], "sent")
+})
+
+test("the handler passes defer through to the service", async () => {
+  let received
+  const fake = {
+    submit: async (payload, ip, options) => {
+      received = options.defer
+      return { status: 200, body: { ok: true } }
+    },
+  }
+  const defer = () => {}
+  const response = await handleWishRequest(
+    post({ text: "hi" }),
+    IP,
+    () => fake,
+    defer
+  )
+  assert.equal(response.status, 200)
+  assert.equal(received, defer)
 })

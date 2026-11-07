@@ -6,13 +6,17 @@ const FORM_ID = "628bd98d7a3f3700087883c5"
 const PAGE_SIZE = 100
 const MAX_PAGES = 6
 const MAX_WISHES = 300
-// Netlify keeps accepting direct posts to the old form, so anything newer than
-// the move to Blobs skipped the spam checks and is never shown.
-const CUTOFF = Date.parse("2026-11-07T00:00:00Z")
+// When the move to Blobs went live. Anything newer is either a notification
+// copy of a stored wish or a direct post that skipped the spam checks.
+const CUTOFF = Date.parse("2026-11-06T17:12:00Z")
 const TOTAL_TIMEOUT_MS = 4000
 
+/**
+ * Returns { wishes, complete }. Complete means the read got as many older
+ * wishes as it wants, or reached the oldest, so it's safe to archive.
+ */
 export const createLegacyReader = ({ apiToken, fetchImpl = fetch }) => {
-  if (!apiToken) return async () => []
+  if (!apiToken) return async () => ({ wishes: [], complete: false })
 
   return async () => {
     const signal = AbortSignal.timeout(TOTAL_TIMEOUT_MS)
@@ -38,8 +42,11 @@ export const createLegacyReader = ({ apiToken, fetchImpl = fetch }) => {
           ip: submission.data?.ip,
         })
       }
-      if (submissions.length < PAGE_SIZE || wishes.length >= MAX_WISHES) break
+      if (submissions.length < PAGE_SIZE || wishes.length >= MAX_WISHES) {
+        return { wishes, complete: true }
+      }
     }
-    return wishes
+    // Ran out of pages first, so newer posts may be hiding older wishes.
+    return { wishes, complete: false }
   }
 }

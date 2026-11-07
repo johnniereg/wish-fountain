@@ -17,6 +17,7 @@ const HOUR_MS = 60 * 60 * 1000
 const MEMORY_TTL_MS = 60 * 1000
 const SNAPSHOT_TTL_MS = 5 * 60 * 1000
 const SNAPSHOT_KEY = "cache/pool"
+const ARCHIVE_KEY = "legacy/archive"
 const MAX_STORED_WISHES = 300
 const MAX_TIMESTAMP = 9999999999999
 
@@ -30,6 +31,7 @@ export const createWishService = ({
   secret,
   phrases = [],
   networks = [],
+  notify = async () => {},
   now = Date.now,
   random = Math.random,
 }) => {
@@ -61,11 +63,30 @@ export const createWishService = ({
         network: wish.ip ? hashNetwork(secret, wish.ip) : null,
       }))
 
+  // Older wishes are read once and kept. Accepted wishes are also posted to
+  // the old form for notifications, so re-reading it would mix them in.
+  const readLegacy = async () => {
+    const archive = await store.get(ARCHIVE_KEY, { type: "json" })
+    if (Array.isArray(archive?.wishes)) return archive.wishes
+
+    const result = await fetchLegacy()
+    const wishes = sanitizeLegacy(result.wishes)
+    // Only a full read is kept for good. Anything else is retried next time.
+    if (result.complete && wishes.length) {
+      try {
+        await store.setJSON(ARCHIVE_KEY, { at: now(), wishes })
+      } catch (error) {
+        console.error("Could not archive legacy wishes:", error.message)
+      }
+    }
+    return wishes
+  }
+
   const rebuildSnapshot = async previous => {
     const stored = await readStoredWishes()
     let legacy
     try {
-      legacy = sanitizeLegacy(await fetchLegacy())
+      legacy = await readLegacy()
     } catch (error) {
       // New wishes must keep appearing, so only the legacy part is reused.
       console.error("Could not read legacy wishes:", error.message)
@@ -130,7 +151,8 @@ export const createWishService = ({
     return { status: 200, body: { ok: true } }
   }
 
-  const submit = async ({ text, token, honeypot }, ip) => {
+  // `defer` lets the platform finish the notification after responding.
+  const submit = async ({ text, token, honeypot }, ip, { defer } = {}) => {
     if (honeypot) return dropped("honeypot")
 
     const wish = typeof text === "string" ? text.trim() : ""
@@ -171,6 +193,9 @@ export const createWishService = ({
     await store.setJSON(wishKey(createdAt), { text: wish, network, createdAt })
     // Recorded last, so a failed save doesn't count against the visitor.
     await store.setJSON(`rate/${network}`, { at: [...recent, createdAt] })
+    const notifying = notify(wish)
+    if (defer) defer(notifying)
+    else await notifying
     return { status: 200, body: { ok: true } }
   }
 
