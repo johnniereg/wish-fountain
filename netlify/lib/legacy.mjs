@@ -6,8 +6,8 @@ const FORM_ID = "628bd98d7a3f3700087883c5"
 const PAGE_SIZE = 100
 const MAX_PAGES = 6
 const MAX_WISHES = 300
-// Netlify keeps accepting direct posts to the old form, so anything newer than
-// the move to Blobs skipped the spam checks and is never shown.
+// Anything newer than the move to Blobs is either a notification copy of a
+// stored wish or a direct post that skipped the spam checks.
 const CUTOFF = Date.parse("2026-11-07T00:00:00Z")
 const TOTAL_TIMEOUT_MS = 4000
 

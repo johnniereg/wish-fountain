@@ -98,7 +98,7 @@ const Form = ({ isVisible, toggleForm, toggleWish }) => {
       <div className="form__wrapper">
         <form
           className="wish-form"
-          name="wish-form"
+          name="wish-entry"
           method="post"
           onSubmit={handleSubmit}
         >

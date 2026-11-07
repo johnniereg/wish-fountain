@@ -189,21 +189,21 @@ test("wishes merge legacy records and filter them", async () => {
 })
 
 test("the pool is served from cache until it goes stale", async () => {
-  let calls = 0
-  const { service, clock } = setup({
-    fetchLegacy: async () => {
-      calls++
-      return [{ text: "an old wish", ip: "4.4.4.4" }]
-    },
-  })
+  const { service, store, clock } = setup()
+  let lists = 0
+  const list = store.list
+  store.list = async options => {
+    lists++
+    return list(options)
+  }
   await service.randomWish(IP)
   await service.randomWish(IP)
   clock.time += 2 * 60 * 1000
   await service.randomWish(IP)
-  assert.equal(calls, 1)
+  assert.equal(lists, 1)
   clock.time += 4 * 60 * 1000
   await service.randomWish(IP)
-  assert.equal(calls, 2)
+  assert.equal(lists, 2)
 })
 
 test("a legacy outage keeps the last good pool", async () => {
@@ -451,4 +451,47 @@ test("the legacy reader pages through submissions and reports failures", async (
     fetchImpl: async () => ({ ok: false, status: 401 }),
   })
   await assert.rejects(failing, /401/)
+})
+
+test("accepted wishes are passed on for notifications", async () => {
+  const sent = []
+  const { submit } = setup({ notify: async text => sent.push(text) })
+  await submit({ text: "  a real wish  " })
+  await submit({ text: "bot wish", honeypot: "x" }, "7.7.7.7")
+  await submit({ text: "this has a forbidden phrase" }, "8.8.8.8")
+  await submit({ text: "too soon" })
+  assert.deepEqual(sent, ["a real wish"])
+})
+
+test("older wishes are read once and archived", async () => {
+  let calls = 0
+  const { service, store, clock } = setup({
+    fetchLegacy: async () => {
+      calls++
+      return [{ text: "an old wish", ip: "4.4.4.4" }]
+    },
+  })
+  assert.equal(await service.randomWish(IP), "an old wish")
+  clock.time += 6 * 60 * 1000
+  assert.equal(await service.randomWish(IP), "an old wish")
+  assert.equal(calls, 1)
+  assert.doesNotMatch(
+    JSON.stringify(store.data.get("legacy/archive")),
+    /4\.4\.4\.4/
+  )
+})
+
+test("an empty legacy read isn't archived", async () => {
+  let calls = 0
+  const { service, clock, store } = setup({
+    fetchLegacy: async () => {
+      calls++
+      return []
+    },
+  })
+  await service.randomWish(IP)
+  clock.time += 6 * 60 * 1000
+  await service.randomWish(IP)
+  assert.equal(calls, 2)
+  assert.equal(store.data.has("legacy/archive"), false)
 })

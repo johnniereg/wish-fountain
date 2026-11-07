@@ -22,6 +22,11 @@ const IndexPage = () => {
         />
       </Helmet>
       <App />
+      {/* Keeps the Netlify form registered: the wish functions post accepted
+          wishes here so its email notifications keep working. */}
+      <form name="wish-form" data-netlify="true" hidden>
+        <textarea name="textarea" />
+      </form>
     </Layout>
   )
 }
